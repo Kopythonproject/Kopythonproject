@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>ko-python (Made by 범서)</title>
+  <style>
+    body { font-family: '맑은 고딕', sans-serif; padding: 20px; background: #f8f8f8; }
+    textarea { width: 100%; height: 180px; font-size: 16px; }
+    #codeView {
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background: #111;
+      color: #eee;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .line { padding: 2px 5px; }
+    .error { background-color: #500; color: #fff; }
+    #output {
+      margin-top: 15px;
+      background: #222;
+      color: #0f0;
+      padding: 10px;
+      white-space: pre-wrap;
+      min-height: 50px;
+    }
+    button { margin-top: 10px; font-size: 16px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h1>ko-python (Made by 범서) Ver 0.1a</h1>
+  <textarea id="code" placeholder='예시:
+주어(출력자) 동사(출력한다) 목적어("안녕하세요")
+주어(조건) 동사(판단한다) 목적어(5 초과 3)
+그러면
+  주어(시스템) 동사(출력한다) 목적어("참입니다")
+아니면
+  주어(시스템) 동사(출력한다) 목적어("거짓입니다")
+끝
+
+동사(출력한다) 목적어("주어 없음") ← 오류 발생
+'></textarea><br />
+  <button onclick="runKoPython()">실행</button>
+
+  <div id="codeView"></div>
+  <div id="output"></div>
+
+  <script>
+    function parseCondition(expr) {
+      const tokens = expr.trim().split(/\s+/);
+      if (tokens.length !== 3) return null;
+      const [left, opWord, right] = tokens;
+
+      const 비교연산자 = {
+        "초과": ">",
+        "미만": "<",
+        "이상": ">=",
+        "이하": "<=",
+        "다름": "!=",
+        "다르다": "!=",
+        "같다": "==",
+        "일치": "==",
+      };
+
+      const jsOp = 비교연산자[opWord];
+      if (!jsOp) return null;
+
+      return `${left} ${jsOp} ${right}`;
+    }
+
+    function runKoPython() {
+      const codeInput = document.getElementById("code").value;
+      const codeLines = codeInput.split("\n");
+      const output = document.getElementById("output");
+      const codeView = document.getElementById("codeView");
+
+      output.textContent = '';
+      codeView.innerHTML = '';
+
+      const lines = codeLines.map(l => l.trim());
+
+      let i = 0;
+      let conditionMode = false;
+      let conditionResult = null;
+      let trueBlock = [], falseBlock = [];
+      let inIfBlock = false, inElseBlock = false;
+      const errorLines = new Set();
+
+      while (i < lines.length) {
+        const rawLine = codeLines[i];
+        const line = lines[i];
+
+        if (line === "그러면") {
+          inIfBlock = true;
+          inElseBlock = false;
+          i++; continue;
+        } else if (line === "아니면") {
+          inElseBlock = true;
+          inIfBlock = false;
+          i++; continue;
+        } else if (line === "끝") {
+          const block = conditionResult ? trueBlock : falseBlock;
+          for (let msg of block) {
+            output.textContent += msg + '\n';
+          }
+          conditionMode = false;
+          conditionResult = null;
+          trueBlock = [];
+          falseBlock = [];
+          inIfBlock = false;
+          inElseBlock = false;
+          i++; continue;
+        }
+
+        if (line.startsWith("주어(")) {
+          const match = line.match(/주어\((.+?)\)\s+동사\((.+?)\)\s+목적어\((.+?)\)/);
+          if (match) {
+            const 주어 = match[1];
+            const 동사 = match[2];
+            let 목적어 = match[3];
+
+            if (목적어.startsWith('"') && 목적어.endsWith('"')) {
+              목적어 = 목적어.slice(1, -1);
+            }
+
+            if (동사 === "판단한다") {
+              try {
+                const jsCondition = parseCondition(목적어);
+                if (!jsCondition) throw new Error("조건 해석 실패");
+                conditionResult = eval(jsCondition);
+                conditionMode = true;
+              } catch {
+                output.textContent += `[오류 ${i + 1}행] 조건 해석 실패: ${목적어}\n`;
+                errorLines.add(i);
+              }
+            } else if (동사 === "출력한다") {
+              const 결과 = `${주어} → ${목적어}`;
+              if (conditionMode && (inIfBlock || inElseBlock)) {
+                const block = inIfBlock ? trueBlock : falseBlock;
+                block.push(결과);
+              } else {
+                output.textContent += 결과 + '\n';
+              }
+            } else {
+              output.textContent += `[오류 ${i + 1}행] 알 수 없는 동사: ${동사}\n`;
+              errorLines.add(i);
+            }
+          } else {
+            output.textContent += `[오류 ${i + 1}행] 문장 구조 오류 (주어+동사+목적어 필요)\n`;
+            errorLines.add(i);
+          }
+        }
+
+        // 주어 누락 시
+        else if (line.match(/동사\(.*\)\s+목적어\(.*\)/)) {
+          output.textContent += `[오류 ${i + 1}행] 주어 누락 오류\n`;
+          errorLines.add(i);
+        }
+
+        else if (line.length > 0) {
+          output.textContent += `[오류 ${i + 1}행] 인식할 수 없는 명령\n`;
+          errorLines.add(i);
+        }
+
+        i++;
+      }
+
+      // 줄별 하이라이팅
+      for (let j = 0; j < codeLines.length; j++) {
+        const div = document.createElement("div");
+        div.textContent = codeLines[j];
+        div.classList.add("line");
+        if (errorLines.has(j)) div.classList.add("error");
+        codeView.appendChild(div);
+      }
+    }
+  </script>
+</body>
+</html>
